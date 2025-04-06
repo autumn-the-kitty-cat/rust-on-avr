@@ -1,0 +1,79 @@
+#![no_main]
+#![no_std]
+
+use core::panic::PanicInfo;
+use cortex_m_rt::entry;
+use rtt_target::{rprintln, rtt_init_print};
+use stm32f4xx_hal::{i2c::Mode, pac, prelude::*};
+
+/*
+ * WP  -> PA0
+ * SDA -> PC7
+ * SCL -> PB6
+ * A0  -> PC0
+ * A1  -> PC1
+ * A2  -> PB0
+ */
+
+#[panic_handler]
+fn panic(information: &PanicInfo) -> ! {
+    rprintln!("{}", information);
+    loop {}
+}
+
+#[entry]
+fn main() -> ! {
+    rtt_init_print!();
+    rprintln!("Initalized...");
+
+    let dp = pac::Peripherals::take().unwrap();
+    let cp = cortex_m::Peripherals::take().unwrap();
+
+    let gpiob = dp.GPIOB.split();
+
+    let rcc = dp.RCC.constrain();
+    let clocks = rcc.cfgr.sysclk(20.MHz()).freeze();
+    let mut delay = cp.SYST.delay(&clocks);
+
+    let sda = gpiob.pb7.into_push_pull_output();
+    let scl = gpiob.pb6.into_push_pull_output();
+
+    let mut i2c = dp.I2C1.i2c(
+        (scl, sda),
+        Mode::Standard {
+            frequency: 400.kHz(),
+        },
+        &clocks,
+    );
+    rprintln!("I2C initialized...");
+
+    // begin
+    let eeprom_address: u16 = 0x50;
+    // write 42
+    //      begin transmission
+    //      write high byte
+    //      write low byte
+    //      write data 42
+    i2c.write(eeprom_address, &[0b10100000, 0, 0, 42]).unwrap();
+    rprintln!("Written...");
+    //      end transmission
+    //      delay 5 ms
+    delay.delay_ms(5);
+    // delay 10 ms
+    delay.delay_ms(10);
+    // read
+    //      begin transmission
+    //      write high byte
+    //      write low byte
+    let mut buffer = [0u8; 1];
+    i2c.write_read(eeprom_address, &[0b10100001, 0, 0], &mut buffer)
+        .unwrap();
+    rprintln!("Read...");
+    //      end transmission
+    //      get one byte
+    // print
+    rprintln!("{}", buffer[0]);
+
+    #[allow(clippy::empty_loop)]
+    loop {}
+}
